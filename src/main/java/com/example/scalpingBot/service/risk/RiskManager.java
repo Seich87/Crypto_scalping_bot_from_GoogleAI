@@ -1,4 +1,4 @@
-package com.example.scalpingBot.service;
+package com.example.scalpingBot.service.risk;
 
 import com.example.scalpingBot.config.RiskManagementConfig;
 import com.example.scalpingBot.entity.Position;

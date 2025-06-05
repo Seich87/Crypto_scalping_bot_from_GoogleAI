@@ -1,4 +1,4 @@
-package com.example.scalpingBot.service;
+package com.example.scalpingBot.service.exchange;
 
 import com.example.scalpingBot.exception.ExchangeApiException;
 import com.example.scalpingBot.utils.CryptoUtils;

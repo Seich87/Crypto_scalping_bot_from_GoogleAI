@@ -1,4 +1,4 @@
-package com.example.scalpingBot.service;
+package com.example.scalpingBot.service.trading;
 
 import com.example.scalpingBot.config.TradingConfig;
 import com.example.scalpingBot.entity.Position;

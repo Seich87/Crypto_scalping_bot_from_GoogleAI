@@ -1,4 +1,4 @@
-package com.example.scalpingBot.service;
+package com.example.scalpingBot.service.trading;
 
 import com.example.scalpingBot.entity.Trade;
 import com.example.scalpingBot.enums.OrderStatus;
@@ -6,8 +6,8 @@ import com.example.scalpingBot.enums.OrderType;
 import com.example.scalpingBot.exception.ExchangeApiException;
 import com.example.scalpingBot.exception.TradingException;
 import com.example.scalpingBot.repository.TradeRepository;
+import com.example.scalpingBot.service.exchange.ExchangeApiService;
 import com.example.scalpingBot.utils.DateUtils;
-import com.example.scalpingBot.utils.MathUtils;
 import com.example.scalpingBot.utils.ValidationUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,7 +16,6 @@ import org.springframework.retry.annotation.Retryable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

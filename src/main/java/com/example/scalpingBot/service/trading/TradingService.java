@@ -1,16 +1,16 @@
-package com.example.scalpingBot.service;
+package com.example.scalpingBot.service.trading;
 
 import com.example.scalpingBot.config.TradingConfig;
 import com.example.scalpingBot.entity.MarketData;
 import com.example.scalpingBot.entity.Position;
 import com.example.scalpingBot.entity.Trade;
-import com.example.scalpingBot.entity.TradingPair;
 import com.example.scalpingBot.enums.OrderSide;
 import com.example.scalpingBot.enums.OrderStatus;
 import com.example.scalpingBot.enums.OrderType;
 import com.example.scalpingBot.enums.RiskLevel;
 import com.example.scalpingBot.exception.TradingException;
 import com.example.scalpingBot.repository.TradeRepository;
+import com.example.scalpingBot.service.risk.RiskManager;
 import com.example.scalpingBot.utils.DateUtils;
 import com.example.scalpingBot.utils.MathUtils;
 import com.example.scalpingBot.utils.ValidationUtils;
@@ -23,8 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**

@@ -3,7 +3,6 @@ package com.example.scalpingBot.service.exchange;
 import com.example.scalpingBot.exception.ExchangeApiException;
 import com.example.scalpingBot.utils.CryptoUtils;
 import com.example.scalpingBot.utils.DateUtils;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,20 +15,17 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import javax.annotation.PostConstruct;
 import java.math.BigDecimal;
-import java.net.SocketTimeoutException;
-import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Сервис для взаимодействия с API криптовалютных бирж
- *
+
  * Поддерживаемые биржи:
  * - Binance (основная для скальпинга)
  * - Bybit (резервная)
- *
+
  * Основные функции:
  * - Размещение и отмена ордеров
  * - Получение рыночных данных в реальном времени
@@ -37,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * - Подписка на WebSocket потоки
  * - Обработка rate limits и ошибок API
  * - Автоматическая аутентификация и подписи запросов
- *
+
  * Все операции оптимизированы для скальпинг-стратегии
  * с минимальными задержками.
  *

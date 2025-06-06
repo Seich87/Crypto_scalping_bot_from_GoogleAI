@@ -40,4 +40,15 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
      * @return Список всех позиций для данной пары.
      */
     List<Position> findAllByTradingPairOrderByCloseTimestampDesc(String tradingPair);
+
+    // Внутри интерфейса PositionRepository
+
+    /**
+     * Находит все закрытые позиции, отсортированные по времени закрытия в хронологическом порядке.
+     * Это необходимо для корректного построения кривой доходности и расчета просадки.
+     *
+     * @param isActive статус активности (должен быть false).
+     * @return Список отсортированных закрытых позиций.
+     */
+    List<Position> findAllByIsActiveOrderByCloseTimestampAsc(boolean isActive);
 }

@@ -1,12 +1,15 @@
 package com.example.scalpingBot.scheduler;
 
 import com.example.scalpingBot.dto.exchange.TickerDto;
+import com.example.scalpingBot.dto.request.StrategyConfigRequest;
 import com.example.scalpingBot.entity.Position;
 import com.example.scalpingBot.enums.OrderSide;
 import com.example.scalpingBot.service.market.MarketDataService;
 import com.example.scalpingBot.service.notification.NotificationService;
 import com.example.scalpingBot.service.trading.PositionManager;
-import com.example.scalpingBot.service.trading.ScalpingStrategy;
+import com.example.scalpingBot.service.trading.StrategyManager;
+import com.example.scalpingBot.service.config.TradingConfigService;
+import com.example.scalpingBot.service.trading.TradingStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +17,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -26,23 +31,24 @@ public class TradingScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(TradingScheduler.class);
 
-    private final ScalpingStrategy scalpingStrategy;
+    private final StrategyManager strategyManager;
     private final PositionManager positionManager;
     private final MarketDataService marketDataService;
     private final NotificationService notificationService;
     private final List<String> tradingPairs;
+    private final TradingConfigService tradingConfigService;
 
     @Autowired
-    public TradingScheduler(ScalpingStrategy scalpingStrategy,
-                            PositionManager positionManager,
+    public TradingScheduler(StrategyManager strategyManager, PositionManager positionManager,
                             MarketDataService marketDataService,
                             NotificationService notificationService,
-                            @Value("${bot.trading-pairs}") List<String> tradingPairs) {
-        this.scalpingStrategy = scalpingStrategy;
+                            @Value("${bot.trading-pairs}") List<String> tradingPairs, TradingConfigService tradingConfigService) {
+        this.strategyManager = strategyManager;
         this.positionManager = positionManager;
         this.marketDataService = marketDataService;
         this.notificationService = notificationService;
         this.tradingPairs = tradingPairs;
+        this.tradingConfigService = tradingConfigService;
     }
 
     /**
@@ -68,11 +74,23 @@ public class TradingScheduler {
     private void processTradingPair(String symbol) {
         log.debug("Processing pair: {}", symbol);
 
-        // 1. Проверяем, есть ли уже активная позиция
-        Optional<Position> activePositionOpt = positionManager.getActivePosition(symbol);
+        // 1. Получаем конфигурацию для текущей пары
+        StrategyConfigRequest config = tradingConfigService.getStrategyConfig(symbol);
 
-        // 2. Генерируем торговый сигнал
-        Optional<OrderSide> signalOpt = scalpingStrategy.generateSignal(symbol);
+        // Если для пары нет конфигурации или она неактивна, пропускаем
+        if (config == null || !config.getIsActive()) {
+            log.trace("Skipping pair {} as it has no active strategy configuration.", symbol);
+            return;
+        }
+
+        // 2. Получаем нужную стратегию и ее параметры
+        TradingStrategy strategy = strategyManager.getStrategy(config.getStrategyName());
+        Map<String, String> params = config.getParameters() != null ? config.getParameters() : Collections.emptyMap();
+
+        log.debug("Processing pair: {} with strategy: {} and params: {}", symbol, config.getStrategyName(), params);
+
+        Optional<Position> activePositionOpt = positionManager.getActivePosition(symbol);
+        Optional<OrderSide> signalOpt = strategy.generateSignal(symbol, params);
 
         if (activePositionOpt.isPresent()) {
             // --- Логика для ОТКРЫТОЙ позиции ---

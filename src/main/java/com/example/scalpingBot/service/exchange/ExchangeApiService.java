@@ -3,12 +3,14 @@ package com.example.scalpingBot.service.exchange;
 import com.example.scalpingBot.dto.exchange.BalanceDto;
 import com.example.scalpingBot.dto.exchange.OrderDto;
 import com.example.scalpingBot.dto.exchange.TickerDto;
+import com.example.scalpingBot.entity.Position;
 import com.example.scalpingBot.enums.OrderSide;
 import com.example.scalpingBot.enums.OrderType;
 import com.example.scalpingBot.exception.ExchangeApiException;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Интерфейс, определяющий стандартный набор функций для взаимодействия с любой криптобиржей.
@@ -75,4 +77,25 @@ public interface ExchangeApiService {
      * @throws ExchangeApiException в случае ошибки со стороны биржи.
      */
     long getServerTime() throws ExchangeApiException;
+
+    /**
+     * Получает список всех активных (неисполненных) ордеров для указанной торговой пары.
+     * Необходимо для сверки состояния при запуске.
+     *
+     * @param symbol Торговая пара.
+     * @return Список DTO активных ордеров.
+     * @throws ExchangeApiException в случае ошибки.
+     */
+    List<OrderDto> getOpenOrders(String symbol) throws ExchangeApiException;
+
+    /**
+     * Получает текущую позицию по указанной паре с биржи.
+     * Примечание: для спотового рынка это симулируется через проверку баланса.
+     * Для фьючерсного рынка это будет прямой запрос к API позиций.
+     *
+     * @param symbol Торговая пара.
+     * @return Optional, содержащий DTO с информацией о позиции, если она есть.
+     * @throws ExchangeApiException в случае ошибки.
+     */
+    Optional<Position> getExchangePosition(String symbol) throws ExchangeApiException;
 }

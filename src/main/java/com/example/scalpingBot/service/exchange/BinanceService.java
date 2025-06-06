@@ -3,6 +3,7 @@ package com.example.scalpingBot.service.exchange;
 import com.example.scalpingBot.dto.exchange.BalanceDto;
 import com.example.scalpingBot.dto.exchange.OrderDto;
 import com.example.scalpingBot.dto.exchange.TickerDto;
+import com.example.scalpingBot.entity.Position;
 import com.example.scalpingBot.enums.OrderSide;
 import com.example.scalpingBot.enums.OrderStatus;
 import com.example.scalpingBot.enums.OrderType;
@@ -11,7 +12,6 @@ import com.example.scalpingBot.utils.CryptoUtils;
 import com.example.scalpingBot.utils.DateUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -22,17 +22,17 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
  * Реализация ExchangeApiService для взаимодействия с биржей Binance.
  */
 @Service
-@Qualifier("binance") // Указываем квалификатор на случай, если будут другие реализации
+@Qualifier("binance")
 public class BinanceService implements ExchangeApiService {
 
     private static final Logger log = LoggerFactory.getLogger(BinanceService.class);
@@ -41,16 +41,18 @@ public class BinanceService implements ExchangeApiService {
     private final String baseUrl;
     private final String apiKey;
     private final String secretKey;
+    private final String quoteAsset;
 
-    @Autowired
     public BinanceService(RestTemplate restTemplate,
                           @Value("${binance.api.base-url}") String baseUrl,
                           @Value("${binance.api.key}") String apiKey,
-                          @Value("${binance.api.secret}") String secretKey) {
+                          @Value("${binance.api.secret}") String secretKey,
+                          @Value("${risk.quote-asset:USDT}") String quoteAsset) {
         this.restTemplate = restTemplate;
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
         this.secretKey = secretKey;
+        this.quoteAsset = quoteAsset;
     }
 
     @Override
@@ -89,8 +91,6 @@ public class BinanceService implements ExchangeApiService {
         String endpoint = "/api/v3/ticker/24hr";
         String url = baseUrl + endpoint + "?symbol=" + symbol;
         try {
-            // *** ИСПРАВЛЕННАЯ СТРОКА ***
-            // Мы ожидаем простой Map, поэтому используем Map.class
             ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
             return mapToTickerDto(Objects.requireNonNull(response.getBody()));
         } catch (HttpClientErrorException e) {
@@ -176,14 +176,52 @@ public class BinanceService implements ExchangeApiService {
         }
     }
 
-    // --- Вспомогательные методы ---
+    @Override
+    public List<OrderDto> getOpenOrders(String symbol) throws ExchangeApiException {
+        String endpoint = "/api/v3/openOrders";
+        String query = "symbol=" + symbol;
+        String fullUrl = baseUrl + createSignedQueryString(query);
+
+        try {
+            ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
+                    fullUrl,
+                    HttpMethod.GET,
+                    new HttpEntity<>(createHeaders()),
+                    new ParameterizedTypeReference<>() {}
+            );
+            return Objects.requireNonNull(response.getBody()).stream()
+                    .map(this::mapToOrderDto)
+                    .collect(Collectors.toList());
+        } catch (HttpClientErrorException e) {
+            throw new ExchangeApiException("Binance | Failed to get open orders: " + e.getResponseBodyAsString(), e);
+        }
+    }
+
+    @Override
+    public Optional<Position> getExchangePosition(String symbol) throws ExchangeApiException {
+        String baseAsset = symbol.replace(this.quoteAsset, "");
+
+        return getBalances().stream()
+                .filter(balance -> balance.getAsset().equalsIgnoreCase(baseAsset))
+                .filter(balance -> balance.getFree().add(balance.getLocked()).compareTo(new BigDecimal("0.00001")) > 0)
+                .map(balance -> Position.builder()
+                        .tradingPair(symbol)
+                        .quantity(balance.getFree().add(balance.getLocked()))
+                        .isActive(true)
+                        .build())
+                .findFirst();
+    }
+
 
     private String createSignedQueryString(String query) {
         long timestamp = System.currentTimeMillis();
-        String queryString = query + (query.isEmpty() ? "" : "&") + "timestamp=" + timestamp;
-        String signature = CryptoUtils.generateHmacSha256(queryString, secretKey);
-        // Возвращает путь с параметрами и подписью
-        return UriComponentsBuilder.fromPath("").query(queryString).queryParam("signature", signature).build(true).toUriString();
+        String queryStringWithTimestamp = query + (query.isEmpty() ? "" : "&") + "timestamp=" + timestamp;
+        String signature = CryptoUtils.generateHmacSha256(queryStringWithTimestamp, secretKey);
+        return UriComponentsBuilder.fromPath("")
+                .query(queryStringWithTimestamp)
+                .queryParam("signature", signature)
+                .build(true)
+                .toUriString();
     }
 
     private HttpHeaders createHeaders() {
@@ -191,8 +229,6 @@ public class BinanceService implements ExchangeApiService {
         headers.set("X-MBX-APIKEY", apiKey);
         return headers;
     }
-
-    // --- Методы-мапперы ---
 
     private OrderDto mapToOrderDto(Map<String, Object> response) {
         return OrderDto.builder()

@@ -2,26 +2,24 @@ package com.example.scalpingBot.utils;
 
 import com.example.scalpingBot.enums.OrderSide;
 import com.example.scalpingBot.enums.OrderType;
-import com.example.scalpingBot.enums.RiskLevel;
+import com.example.scalpingBot.exception.TradingException;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
 import java.util.regex.Pattern;
 
 /**
  * Утилиты валидации для скальпинг-бота
  *
  * Основные функции:
- * - Валидация торговых параметров
- * - Проверка лимитов риск-менеджмента
- * - Валидация API ключей и подписей
- * - Проверка рыночных условий
- * - Валидация торговых пар и форматов
+ * - Валидация параметров торговых ордеров
+ * - Проверка торговых пар и их форматов
+ * - Валидация размеров позиций и цен
+ * - Проверка лимитов и ограничений бирж
+ * - Валидация временных параметров
  *
- * Все проверки оптимизированы для быстрого выполнения
- * и содержат детальные сообщения об ошибках.
+ * Все проверки соответствуют требованиям основных
+ * криптовалютных бирж (Binance, Bybit).
  *
  * @author ScalpingBot Team
  * @version 1.0
@@ -32,21 +30,25 @@ public class ValidationUtils {
     /**
      * Регулярные выражения для валидации
      */
-    private static final Pattern TRADING_PAIR_PATTERN = Pattern.compile("^[A-Z0-9]{2,10}(USDT|BTC|ETH|BNB|BUSD|USDC)$");
-    private static final Pattern API_KEY_PATTERN = Pattern.compile("^[a-zA-Z0-9]{64}$");
-    private static final Pattern SECRET_KEY_PATTERN = Pattern.compile("^[a-zA-Z0-9+/]{64,}={0,2}$");
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Za-z0-9+_.-]+@([A-Za-z0-9.-]+\\.[A-Za-z]{2,})$");
-    private static final Pattern TELEGRAM_CHAT_ID_PATTERN = Pattern.compile("^-?[0-9]{1,15}$");
+    private static final Pattern TRADING_PAIR_PATTERN = Pattern.compile("^[A-Z0-9]{2,10}(USDT|BTC|ETH|BNB|BUSD)$");
+    private static final Pattern BINANCE_ORDER_ID_PATTERN = Pattern.compile("^[0-9]+$");
+    private static final Pattern CLIENT_ORDER_ID_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]{1,36}$");
 
     /**
-     * Константы для валидации
+     * Минимальные и максимальные значения для торговли
      */
-    private static final BigDecimal MIN_PRICE = new BigDecimal("0.00000001");
-    private static final BigDecimal MAX_PRICE = new BigDecimal("1000000");
+    private static final BigDecimal MIN_USDT_VOLUME = new BigDecimal("5.0");
+    private static final BigDecimal MAX_USDT_VOLUME = new BigDecimal("1000000.0");
     private static final BigDecimal MIN_QUANTITY = new BigDecimal("0.00000001");
-    private static final BigDecimal MAX_QUANTITY = new BigDecimal("1000000");
-    private static final BigDecimal MIN_USDT_VALUE = new BigDecimal("10.0");
-    private static final BigDecimal MAX_USDT_VALUE = new BigDecimal("1000000.0");
+    private static final BigDecimal MAX_QUANTITY = new BigDecimal("1000000.0");
+    private static final BigDecimal MIN_PRICE = new BigDecimal("0.00000001");
+    private static final BigDecimal MAX_PRICE = new BigDecimal("1000000.0");
+
+    /**
+     * Максимальные размеры строк
+     */
+    private static final int MAX_TRADING_PAIR_LENGTH = 20;
+    private static final int MAX_ORDER_ID_LENGTH = 50;
 
     // Приватный конструктор для утилитарного класса
     private ValidationUtils() {
@@ -54,185 +56,216 @@ public class ValidationUtils {
     }
 
     /**
+     * Валидировать параметры торгового ордера
+     *
+     * @param tradingPair торговая пара
+     * @param orderType тип ордера
+     * @param orderSide сторона ордера
+     * @param quantity количество
+     * @param price цена (может быть null для рыночных ордеров)
+     * @throws TradingException если параметры некорректны
+     */
+    public static void validateOrderParameters(String tradingPair, OrderType orderType,
+                                               OrderSide orderSide, BigDecimal quantity, BigDecimal price) {
+        log.debug("Validating order parameters: {} {} {} qty={} price={}",
+                tradingPair, orderType, orderSide, quantity, price);
+
+        // Валидация торговой пары
+        validateTradingPair(tradingPair);
+
+        // Валидация типа и стороны ордера
+        validateNotNull(orderType, "Order type");
+        validateNotNull(orderSide, "Order side");
+
+        // Валидация количества
+        validateQuantity(quantity);
+
+        // Валидация цены (если требуется)
+        if (orderType.isRequiresPrice() && price != null) {
+            validatePrice(price);
+        } else if (orderType == OrderType.MARKET && price != null) {
+            log.warn("Price specified for market order, will be ignored");
+        }
+
+        // Специфичная валидация для типов ордеров
+        validateOrderTypeSpecific(orderType, orderSide);
+
+        log.debug("Order parameters validation passed");
+    }
+
+    /**
      * Валидировать торговую пару
      *
      * @param tradingPair торговая пара
-     * @return true если валидна
-     */
-    public static boolean isValidTradingPair(String tradingPair) {
-        return tradingPair != null &&
-                !tradingPair.trim().isEmpty() &&
-                TRADING_PAIR_PATTERN.matcher(tradingPair.toUpperCase()).matches();
-    }
-
-    /**
-     * Валидировать торговую пару с исключением
-     *
-     * @param tradingPair торговая пара
-     * @throws IllegalArgumentException если не валидна
+     * @throws TradingException если пара некорректна
      */
     public static void validateTradingPair(String tradingPair) {
-        if (!isValidTradingPair(tradingPair)) {
-            throw new IllegalArgumentException(
-                    String.format("Неверный формат торговой пары: %s. " +
-                            "Ожидается формат: BTCUSDT, ETHUSDT, и т.д.", tradingPair)
-            );
-        }
-    }
+        validateNotBlank(tradingPair, "Trading pair");
 
-    /**
-     * Валидировать цену
-     *
-     * @param price цена
-     * @return true если валидна
-     */
-    public static boolean isValidPrice(BigDecimal price) {
-        return price != null &&
-                price.compareTo(MIN_PRICE) >= 0 &&
-                price.compareTo(MAX_PRICE) <= 0;
-    }
-
-    /**
-     * Валидировать цену с исключением
-     *
-     * @param price цена
-     * @throws IllegalArgumentException если не валидна
-     */
-    public static void validatePrice(BigDecimal price) {
-        if (!isValidPrice(price)) {
-            throw new IllegalArgumentException(
-                    String.format("Неверная цена: %s. Диапазон: %s - %s",
-                            price, MIN_PRICE, MAX_PRICE)
-            );
+        if (tradingPair.length() > MAX_TRADING_PAIR_LENGTH) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_TRADING_PAIR,
+                    "Trading pair too long: " + tradingPair.length() + " characters");
         }
+
+        if (!TRADING_PAIR_PATTERN.matcher(tradingPair).matches()) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_TRADING_PAIR,
+                    "Invalid trading pair format: " + tradingPair);
+        }
+
+        log.debug("Trading pair validation passed: {}", tradingPair);
     }
 
     /**
      * Валидировать количество
      *
      * @param quantity количество
-     * @return true если валидно
-     */
-    public static boolean isValidQuantity(BigDecimal quantity) {
-        return quantity != null &&
-                quantity.compareTo(MIN_QUANTITY) >= 0 &&
-                quantity.compareTo(MAX_QUANTITY) <= 0;
-    }
-
-    /**
-     * Валидировать количество с исключением
-     *
-     * @param quantity количество
-     * @throws IllegalArgumentException если не валидно
+     * @throws TradingException если количество некорректно
      */
     public static void validateQuantity(BigDecimal quantity) {
-        if (!isValidQuantity(quantity)) {
-            throw new IllegalArgumentException(
-                    String.format("Неверное количество: %s. Диапазон: %s - %s",
-                            quantity, MIN_QUANTITY, MAX_QUANTITY)
-            );
+        validateNotNull(quantity, "Quantity");
+
+        if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_POSITION_SIZE,
+                    "Quantity must be positive: " + quantity);
         }
+
+        if (quantity.compareTo(MIN_QUANTITY) < 0) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_POSITION_SIZE,
+                    "Quantity below minimum: " + quantity + " < " + MIN_QUANTITY);
+        }
+
+        if (quantity.compareTo(MAX_QUANTITY) > 0) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_POSITION_SIZE,
+                    "Quantity above maximum: " + quantity + " > " + MAX_QUANTITY);
+        }
+
+        log.debug("Quantity validation passed: {}", quantity);
     }
 
     /**
-     * Валидировать объем сделки в USDT
+     * Валидировать цену
      *
-     * @param volume объем в USDT
-     * @return true если валиден
+     * @param price цена
+     * @throws TradingException если цена некорректна
      */
-    public static boolean isValidUsdtVolume(BigDecimal volume) {
-        return volume != null &&
-                volume.compareTo(MIN_USDT_VALUE) >= 0 &&
-                volume.compareTo(MAX_USDT_VALUE) <= 0;
+    public static void validatePrice(BigDecimal price) {
+        validateNotNull(price, "Price");
+
+        if (price.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_PRICE,
+                    "Price must be positive: " + price);
+        }
+
+        if (price.compareTo(MIN_PRICE) < 0) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_PRICE,
+                    "Price below minimum: " + price + " < " + MIN_PRICE);
+        }
+
+        if (price.compareTo(MAX_PRICE) > 0) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_PRICE,
+                    "Price above maximum: " + price + " > " + MAX_PRICE);
+        }
+
+        log.debug("Price validation passed: {}", price);
     }
 
     /**
-     * Валидировать объем сделки с исключением
+     * Валидировать объем в USDT
      *
      * @param volume объем в USDT
-     * @throws IllegalArgumentException если не валиден
+     * @throws TradingException если объем некорректен
      */
     public static void validateUsdtVolume(BigDecimal volume) {
-        if (!isValidUsdtVolume(volume)) {
-            throw new IllegalArgumentException(
-                    String.format("Неверный объем сделки: $%s. Диапазон: $%s - $%s",
-                            volume, MIN_USDT_VALUE, MAX_USDT_VALUE)
-            );
+        validateNotNull(volume, "USDT volume");
+
+        if (volume.compareTo(MIN_USDT_VOLUME) < 0) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_POSITION_SIZE,
+                    "USDT volume below minimum: " + volume + " < " + MIN_USDT_VOLUME);
         }
+
+        if (volume.compareTo(MAX_USDT_VOLUME) > 0) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_POSITION_SIZE,
+                    "USDT volume above maximum: " + volume + " > " + MAX_USDT_VOLUME);
+        }
+
+        log.debug("USDT volume validation passed: {}", volume);
+    }
+
+    /**
+     * Валидировать ID ордера Binance
+     *
+     * @param orderId ID ордера
+     * @throws TradingException если ID некорректен
+     */
+    public static void validateBinanceOrderId(String orderId) {
+        validateNotBlank(orderId, "Binance order ID");
+
+        if (orderId.length() > MAX_ORDER_ID_LENGTH) {
+            throw new TradingException(TradingException.TradingErrorType.ORDER_FAILED,
+                    "Order ID too long: " + orderId.length() + " characters");
+        }
+
+        if (!BINANCE_ORDER_ID_PATTERN.matcher(orderId).matches()) {
+            throw new TradingException(TradingException.TradingErrorType.ORDER_FAILED,
+                    "Invalid Binance order ID format: " + orderId);
+        }
+
+        log.debug("Binance order ID validation passed: {}", orderId);
+    }
+
+    /**
+     * Валидировать клиентский ID ордера
+     *
+     * @param clientOrderId клиентский ID ордера
+     * @throws TradingException если ID некорректен
+     */
+    public static void validateClientOrderId(String clientOrderId) {
+        if (clientOrderId == null) {
+            return; // Клиентский ID опционален
+        }
+
+        if (clientOrderId.trim().isEmpty()) {
+            throw new TradingException(TradingException.TradingErrorType.ORDER_FAILED,
+                    "Client order ID cannot be empty");
+        }
+
+        if (clientOrderId.length() > 36) {
+            throw new TradingException(TradingException.TradingErrorType.ORDER_FAILED,
+                    "Client order ID too long: " + clientOrderId.length() + " characters");
+        }
+
+        if (!CLIENT_ORDER_ID_PATTERN.matcher(clientOrderId).matches()) {
+            throw new TradingException(TradingException.TradingErrorType.ORDER_FAILED,
+                    "Invalid client order ID format: " + clientOrderId);
+        }
+
+        log.debug("Client order ID validation passed: {}", clientOrderId);
     }
 
     /**
      * Валидировать процентное значение
      *
      * @param percentage процент
+     * @param fieldName название поля
      * @param min минимальное значение
      * @param max максимальное значение
-     * @return true если валиден
+     * @throws TradingException если процент некорректен
      */
-    public static boolean isValidPercentage(BigDecimal percentage, BigDecimal min, BigDecimal max) {
-        return percentage != null &&
-                percentage.compareTo(min) >= 0 &&
-                percentage.compareTo(max) <= 0;
-    }
+    public static void validatePercentage(BigDecimal percentage, String fieldName,
+                                          BigDecimal min, BigDecimal max) {
+        validateNotNull(percentage, fieldName);
 
-    /**
-     * Валидировать процент прибыли для скальпинга
-     *
-     * @param profitPercent процент прибыли
-     * @throws IllegalArgumentException если не валиден
-     */
-    public static void validateProfitPercent(BigDecimal profitPercent) {
-        BigDecimal min = new BigDecimal("0.1");
-        BigDecimal max = new BigDecimal("10.0");
-
-        if (!isValidPercentage(profitPercent, min, max)) {
-            throw new IllegalArgumentException(
-                    String.format("Неверный процент прибыли: %s%%. Диапазон для скальпинга: %s%% - %s%%",
-                            profitPercent, min, max)
-            );
-        }
-    }
-
-    /**
-     * Валидировать процент стоп-лосса
-     *
-     * @param stopLossPercent процент стоп-лосса
-     * @throws IllegalArgumentException если не валиден
-     */
-    public static void validateStopLossPercent(BigDecimal stopLossPercent) {
-        BigDecimal min = new BigDecimal("0.1");
-        BigDecimal max = new BigDecimal("5.0");
-
-        if (!isValidPercentage(stopLossPercent, min, max)) {
-            throw new IllegalArgumentException(
-                    String.format("Неверный процент стоп-лосса: %s%%. Диапазон: %s%% - %s%%",
-                            stopLossPercent, min, max)
-            );
-        }
-    }
-
-    /**
-     * Валидировать соотношение риск/прибыль
-     *
-     * @param profitPercent процент прибыли
-     * @param stopLossPercent процент стоп-лосса
-     * @throws IllegalArgumentException если соотношение неприемлемо
-     */
-    public static void validateRiskRewardRatio(BigDecimal profitPercent, BigDecimal stopLossPercent) {
-        if (profitPercent == null || stopLossPercent == null || stopLossPercent.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Проценты прибыли и стоп-лосса должны быть положительными");
+        if (percentage.compareTo(min) < 0) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_POSITION_SIZE,
+                    fieldName + " below minimum: " + percentage + "% < " + min + "%");
         }
 
-        BigDecimal ratio = profitPercent.divide(stopLossPercent, 2, BigDecimal.ROUND_HALF_UP);
-        BigDecimal minRatio = new BigDecimal("1.5");
-        BigDecimal maxRatio = new BigDecimal("5.0");
-
-        if (ratio.compareTo(minRatio) < 0 || ratio.compareTo(maxRatio) > 0) {
-            throw new IllegalArgumentException(
-                    String.format("Неприемлемое соотношение риск/прибыль: 1:%s. Рекомендуется: 1:%s - 1:%s",
-                            ratio, minRatio, maxRatio)
-            );
+        if (percentage.compareTo(max) > 0) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_POSITION_SIZE,
+                    fieldName + " above maximum: " + percentage + "% > " + max + "%");
         }
+
+        log.debug("{} validation passed: {}%", fieldName, percentage);
     }
 
     /**
@@ -240,66 +273,88 @@ public class ValidationUtils {
      *
      * @param positionSize размер позиции
      * @param accountBalance баланс счета
-     * @param maxPositionPercent максимальный процент позиции
-     * @throws IllegalArgumentException если размер превышает лимит
+     * @param maxPercentage максимальный процент от баланса
+     * @throws TradingException если размер позиции некорректен
      */
-    public static void validatePositionSize(BigDecimal positionSize, BigDecimal accountBalance,
-                                            BigDecimal maxPositionPercent) {
-        if (positionSize == null || accountBalance == null || maxPositionPercent == null) {
-            throw new IllegalArgumentException("Все параметры должны быть указаны");
+    public static void validatePositionSizeVsBalance(BigDecimal positionSize, BigDecimal accountBalance,
+                                                     BigDecimal maxPercentage) {
+        validateNotNull(positionSize, "Position size");
+        validateNotNull(accountBalance, "Account balance");
+        validateNotNull(maxPercentage, "Max percentage");
+
+        if (accountBalance.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new TradingException(TradingException.TradingErrorType.INSUFFICIENT_BALANCE,
+                    "Account balance must be positive: " + accountBalance);
         }
 
-        if (positionSize.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Размер позиции должен быть положительным");
-        }
-
-        BigDecimal maxPositionSize = accountBalance.multiply(maxPositionPercent).divide(new BigDecimal("100"));
+        BigDecimal maxPositionSize = MathUtils.percentageOf(accountBalance, maxPercentage);
 
         if (positionSize.compareTo(maxPositionSize) > 0) {
-            throw new IllegalArgumentException(
-                    String.format("Размер позиции $%s превышает лимит $%s (%s%% от баланса $%s)",
-                            positionSize, maxPositionSize, maxPositionPercent, accountBalance)
-            );
+            throw new TradingException(TradingException.TradingErrorType.POSITION_LIMIT_EXCEEDED,
+                    String.format("Position size %s exceeds %s%% of balance (%s)",
+                            positionSize, maxPercentage, maxPositionSize));
+        }
+
+        log.debug("Position size vs balance validation passed: {} / {} ({}%)",
+                positionSize, accountBalance,
+                MathUtils.percentageChange(BigDecimal.ZERO,
+                        MathUtils.safeDivide(positionSize, accountBalance).multiply(new BigDecimal("100"))));
+    }
+
+    /**
+     * Валидировать временную метку
+     *
+     * @param timestamp временная метка в миллисекундах
+     * @param maxAgeSeconds максимальный возраст в секундах
+     * @throws TradingException если временная метка некорректна
+     */
+    public static void validateTimestamp(long timestamp, int maxAgeSeconds) {
+        long currentTime = System.currentTimeMillis();
+        long age = (currentTime - timestamp) / 1000;
+
+        if (age > maxAgeSeconds) {
+            throw new TradingException(TradingException.TradingErrorType.ORDER_TIMEOUT,
+                    "Timestamp too old: " + age + " seconds > " + maxAgeSeconds + " seconds");
+        }
+
+        if (timestamp > currentTime + 5000) { // 5 секунд в будущем
+            throw new TradingException(TradingException.TradingErrorType.ORDER_FAILED,
+                    "Timestamp in future: " + timestamp + " > " + currentTime);
+        }
+
+        log.debug("Timestamp validation passed: {} (age: {} seconds)", timestamp, age);
+    }
+
+    /**
+     * Специфичная валидация для типов ордеров
+     */
+    private static void validateOrderTypeSpecific(OrderType orderType, OrderSide orderSide) {
+        // Проверка совместимости типа ордера со стороной
+        if (!orderSide.isCompatibleForScalping(orderType)) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_POSITION_SIZE,
+                    "Order type " + orderType + " not compatible with side " + orderSide + " for scalping");
+        }
+
+        log.debug("Order type specific validation passed: {} {}", orderType, orderSide);
+    }
+
+    /**
+     * Валидировать что объект не null
+     */
+    private static void validateNotNull(Object value, String fieldName) {
+        if (value == null) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_POSITION_SIZE,
+                    fieldName + " cannot be null");
         }
     }
 
     /**
-     * Валидировать количество открытых позиций
-     *
-     * @param currentPositions текущее количество позиций
-     * @param maxPositions максимальное количество
-     * @throws IllegalArgumentException если превышен лимит
+     * Валидировать что строка не пустая
      */
-    public static void validatePositionCount(int currentPositions, int maxPositions) {
-        if (currentPositions < 0 || maxPositions < 0) {
-            throw new IllegalArgumentException("Количество позиций не может быть отрицательным");
-        }
-
-        if (currentPositions >= maxPositions) {
-            throw new IllegalArgumentException(
-                    String.format("Достигнут лимит позиций: %d из %d максимум",
-                            currentPositions, maxPositions)
-            );
-        }
-    }
-
-    /**
-     * Валидировать дневные потери
-     *
-     * @param currentLossPercent текущие потери в процентах
-     * @param maxDailyLossPercent максимальный дневной лимит
-     * @throws IllegalArgumentException если превышен лимит
-     */
-    public static void validateDailyLoss(BigDecimal currentLossPercent, BigDecimal maxDailyLossPercent) {
-        if (currentLossPercent == null || maxDailyLossPercent == null) {
-            throw new IllegalArgumentException("Параметры потерь должны быть указаны");
-        }
-
-        if (currentLossPercent.abs().compareTo(maxDailyLossPercent) >= 0) {
-            throw new IllegalArgumentException(
-                    String.format("Превышен дневной лимит потерь: %s%% из %s%% максимум",
-                            currentLossPercent.abs(), maxDailyLossPercent)
-            );
+    private static void validateNotBlank(String value, String fieldName) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new TradingException(TradingException.TradingErrorType.INVALID_TRADING_PAIR,
+                    fieldName + " cannot be blank");
         }
     }
 
@@ -307,297 +362,67 @@ public class ValidationUtils {
      * Валидировать API ключ
      *
      * @param apiKey API ключ
-     * @return true если валиден
+     * @throws TradingException если ключ некорректен
      */
-    public static boolean isValidApiKey(String apiKey) {
-        return apiKey != null &&
-                !apiKey.trim().isEmpty() &&
-                API_KEY_PATTERN.matcher(apiKey).matches();
+    public static void validateApiKey(String apiKey) {
+        validateNotBlank(apiKey, "API key");
+
+        if (apiKey.length() < 32) {
+            throw new TradingException(TradingException.TradingErrorType.API_ERROR,
+                    "API key too short");
+        }
+
+        if (apiKey.length() > 128) {
+            throw new TradingException(TradingException.TradingErrorType.API_ERROR,
+                    "API key too long");
+        }
+
+        log.debug("API key validation passed: {}", CryptoUtils.maskApiKey(apiKey));
     }
 
     /**
      * Валидировать секретный ключ
      *
      * @param secretKey секретный ключ
-     * @return true если валиден
+     * @throws TradingException если ключ некорректен
      */
-    public static boolean isValidSecretKey(String secretKey) {
-        return secretKey != null &&
-                !secretKey.trim().isEmpty() &&
-                SECRET_KEY_PATTERN.matcher(secretKey).matches();
+    public static void validateSecretKey(String secretKey) {
+        validateNotBlank(secretKey, "Secret key");
+
+        if (secretKey.length() < 32) {
+            throw new TradingException(TradingException.TradingErrorType.API_ERROR,
+                    "Secret key too short");
+        }
+
+        if (secretKey.length() > 128) {
+            throw new TradingException(TradingException.TradingErrorType.API_ERROR,
+                    "Secret key too long");
+        }
+
+        log.debug("Secret key validation passed: {}", CryptoUtils.maskSecretKey(secretKey));
     }
 
     /**
-     * Валидировать API ключи с исключением
-     *
-     * @param apiKey API ключ
-     * @param secretKey секретный ключ
-     * @throws IllegalArgumentException если не валидны
-     */
-    public static void validateApiKeys(String apiKey, String secretKey) {
-        if (!isValidApiKey(apiKey)) {
-            throw new IllegalArgumentException("Неверный формат API ключа");
-        }
-
-        if (!isValidSecretKey(secretKey)) {
-            throw new IllegalArgumentException("Неверный формат секретного ключа");
-        }
-    }
-
-    /**
-     * Валидировать email адрес
-     *
-     * @param email email адрес
-     * @return true если валиден
-     */
-    public static boolean isValidEmail(String email) {
-        return email != null &&
-                !email.trim().isEmpty() &&
-                EMAIL_PATTERN.matcher(email).matches();
-    }
-
-    /**
-     * Валидировать Telegram chat ID
-     *
-     * @param chatId chat ID
-     * @return true если валиден
-     */
-    public static boolean isValidTelegramChatId(String chatId) {
-        return chatId != null &&
-                !chatId.trim().isEmpty() &&
-                TELEGRAM_CHAT_ID_PATTERN.matcher(chatId).matches();
-    }
-
-    /**
-     * Валидировать временной интервал
-     *
-     * @param intervalSeconds интервал в секундах
-     * @param minSeconds минимальный интервал
-     * @param maxSeconds максимальный интервал
-     * @throws IllegalArgumentException если интервал не валиден
-     */
-    public static void validateTimeInterval(int intervalSeconds, int minSeconds, int maxSeconds) {
-        if (intervalSeconds < minSeconds || intervalSeconds > maxSeconds) {
-            throw new IllegalArgumentException(
-                    String.format("Неверный временной интервал: %d сек. Диапазон: %d - %d сек",
-                            intervalSeconds, minSeconds, maxSeconds)
-            );
-        }
-    }
-
-    /**
-     * Валидировать время жизни позиции
-     *
-     * @param positionOpenTime время открытия позиции
-     * @param maxPositionTimeMinutes максимальное время в минутах
-     * @throws IllegalArgumentException если позиция слишком старая
-     */
-    public static void validatePositionAge(LocalDateTime positionOpenTime, int maxPositionTimeMinutes) {
-        if (positionOpenTime == null) {
-            throw new IllegalArgumentException("Время открытия позиции должно быть указано");
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        long ageMinutes = java.time.Duration.between(positionOpenTime, now).toMinutes();
-
-        if (ageMinutes >= maxPositionTimeMinutes) {
-            throw new IllegalArgumentException(
-                    String.format("Позиция превысила максимальное время удержания: %d мин из %d макс",
-                            ageMinutes, maxPositionTimeMinutes)
-            );
-        }
-    }
-
-    /**
-     * Валидировать спред
-     *
-     * @param bidPrice цена покупки
-     * @param askPrice цена продажи
-     * @param maxSpreadPercent максимальный спред в процентах
-     * @throws IllegalArgumentException если спред слишком высокий
-     */
-    public static void validateSpread(BigDecimal bidPrice, BigDecimal askPrice, BigDecimal maxSpreadPercent) {
-        if (bidPrice == null || askPrice == null || maxSpreadPercent == null) {
-            throw new IllegalArgumentException("Все параметры спреда должны быть указаны");
-        }
-
-        if (askPrice.compareTo(bidPrice) <= 0) {
-            throw new IllegalArgumentException("Цена продажи должна быть выше цены покупки");
-        }
-
-        BigDecimal spread = askPrice.subtract(bidPrice);
-        BigDecimal spreadPercent = spread.divide(bidPrice, 4, BigDecimal.ROUND_HALF_UP).multiply(new BigDecimal("100"));
-
-        if (spreadPercent.compareTo(maxSpreadPercent) > 0) {
-            throw new IllegalArgumentException(
-                    String.format("Спред слишком высокий: %s%% > %s%% максимум",
-                            spreadPercent, maxSpreadPercent)
-            );
-        }
-    }
-
-    /**
-     * Валидировать волатильность
-     *
-     * @param currentVolatility текущая волатильность (ATR)
-     * @param maxVolatility максимальная допустимая волатильность
-     * @param riskLevel текущий уровень риска
-     * @throws IllegalArgumentException если волатильность слишком высокая
-     */
-    public static void validateVolatility(BigDecimal currentVolatility, BigDecimal maxVolatility, RiskLevel riskLevel) {
-        if (currentVolatility == null || maxVolatility == null) {
-            throw new IllegalArgumentException("Параметры волатильности должны быть указаны");
-        }
-
-        if (currentVolatility.compareTo(maxVolatility) > 0) {
-            throw new IllegalArgumentException(
-                    String.format("Волатильность слишком высокая для уровня риска %s: %s%% > %s%% максимум",
-                            riskLevel, currentVolatility, maxVolatility)
-            );
-        }
-    }
-
-    /**
-     * Валидировать корреляцию между активами
-     *
-     * @param correlation коэффициент корреляции
-     * @param maxCorrelation максимальная допустимая корреляция
-     * @param pairs список торговых пар
-     * @throws IllegalArgumentException если корреляция слишком высокая
-     */
-    public static void validateCorrelation(BigDecimal correlation, BigDecimal maxCorrelation, List<String> pairs) {
-        if (correlation == null || maxCorrelation == null) {
-            throw new IllegalArgumentException("Параметры корреляции должны быть указаны");
-        }
-
-        if (correlation.abs().compareTo(maxCorrelation) > 0) {
-            throw new IllegalArgumentException(
-                    String.format("Корреляция между активами слишком высокая: %s > %s максимум для пар: %s",
-                            correlation.abs(), maxCorrelation,
-                            pairs != null ? String.join(", ", pairs) : "неизвестно")
-            );
-        }
-    }
-
-    /**
-     * Валидировать совместимость типа ордера и стороны
-     *
-     * @param orderType тип ордера
-     * @param orderSide сторона ордера
-     * @throws IllegalArgumentException если комбинация не валидна
-     */
-    public static void validateOrderTypeAndSide(OrderType orderType, OrderSide orderSide) {
-        if (orderType == null || orderSide == null) {
-            throw new IllegalArgumentException("Тип ордера и сторона должны быть указаны");
-        }
-
-        // Специальные проверки для OCO ордеров
-        if (orderType == OrderType.OCO) {
-            // OCO ордера содержат оба направления, поэтому сторона должна быть основной
-            // Дополнительные проверки могут быть добавлены здесь
-        }
-
-        // Проверка совместимости для скальпинга
-        if (!orderSide.isCompatibleForScalping(orderType)) {
-            throw new IllegalArgumentException(
-                    String.format("Комбинация %s + %s не подходит для скальпинг-стратегии",
-                            orderType, orderSide)
-            );
-        }
-    }
-
-    /**
-     * Валидировать параметры для стоп-лосса
-     *
-     * @param entryPrice цена входа
-     * @param stopLossPrice цена стоп-лосса
-     * @param orderSide сторона позиции
-     * @throws IllegalArgumentException если параметры не валидны
-     */
-    public static void validateStopLossPrice(BigDecimal entryPrice, BigDecimal stopLossPrice, OrderSide orderSide) {
-        if (entryPrice == null || stopLossPrice == null || orderSide == null) {
-            throw new IllegalArgumentException("Все параметры стоп-лосса должны быть указаны");
-        }
-
-        if (orderSide == OrderSide.BUY) {
-            // Для длинной позиции стоп-лосс должен быть ниже цены входа
-            if (stopLossPrice.compareTo(entryPrice) >= 0) {
-                throw new IllegalArgumentException(
-                        String.format("Для длинной позиции стоп-лосс (%s) должен быть ниже цены входа (%s)",
-                                stopLossPrice, entryPrice)
-                );
-            }
-        } else {
-            // Для короткой позиции стоп-лосс должен быть выше цены входа
-            if (stopLossPrice.compareTo(entryPrice) <= 0) {
-                throw new IllegalArgumentException(
-                        String.format("Для короткой позиции стоп-лосс (%s) должен быть выше цены входа (%s)",
-                                stopLossPrice, entryPrice)
-                );
-            }
-        }
-    }
-
-    /**
-     * Валидировать все параметры ордера
-     *
-     * @param tradingPair торговая пара
-     * @param orderType тип ордера
-     * @param orderSide сторона ордера
-     * @param quantity количество
-     * @param price цена (может быть null для рыночных ордеров)
-     * @throws IllegalArgumentException если любой параметр не валиден
-     */
-    public static void validateOrderParameters(String tradingPair, OrderType orderType, OrderSide orderSide,
-                                               BigDecimal quantity, BigDecimal price) {
-        validateTradingPair(tradingPair);
-        validateQuantity(quantity);
-        validateOrderTypeAndSide(orderType, orderSide);
-
-        // Проверяем цену только если она требуется для типа ордера
-        if (orderType.isRequiresPrice() && price != null) {
-            validatePrice(price);
-        }
-
-        // Валидируем объем сделки
-        if (price != null) {
-            BigDecimal volume = quantity.multiply(price);
-            validateUsdtVolume(volume);
-        }
-    }
-
-    /**
-     * Проверить, является ли строка null или пустой
-     *
-     * @param value проверяемая строка
-     * @return true если null или пустая
-     */
-    public static boolean isNullOrEmpty(String value) {
-        return value == null || value.trim().isEmpty();
-    }
-
-    /**
-     * Проверить, является ли значение null или меньше/равно нулю
+     * Проверить диапазон значений
      *
      * @param value проверяемое значение
-     * @return true если null или <= 0
+     * @param min минимум
+     * @param max максимум
+     * @param fieldName название поля
+     * @return true если значение в диапазоне
      */
-    public static boolean isNullOrZero(BigDecimal value) {
-        return value == null || value.compareTo(BigDecimal.ZERO) <= 0;
-    }
-
-    /**
-     * Проверить, что все значения в списке положительные
-     *
-     * @param values список значений
-     * @return true если все положительные
-     */
-    public static boolean areAllPositive(List<BigDecimal> values) {
-        if (values == null || values.isEmpty()) {
+    public static boolean isInRange(BigDecimal value, BigDecimal min, BigDecimal max, String fieldName) {
+        if (value == null) {
+            log.warn("{} is null, cannot check range", fieldName);
             return false;
         }
 
-        return values.stream()
-                .allMatch(value -> value != null && value.compareTo(BigDecimal.ZERO) > 0);
+        boolean inRange = value.compareTo(min) >= 0 && value.compareTo(max) <= 0;
+
+        if (!inRange) {
+            log.warn("{} {} is outside range [{}, {}]", fieldName, value, min, max);
+        }
+
+        return inRange;
     }
 }

@@ -22,6 +22,8 @@ configurations {
 }
 
 repositories {
+	maven { url = uri("https://repo1.maven.org/maven2/") }  // Основной репозиторий
+	maven { url = uri("https://repository.spring.io/milestone") }  // Spring репозиторий
 	mavenCentral()
 }
 

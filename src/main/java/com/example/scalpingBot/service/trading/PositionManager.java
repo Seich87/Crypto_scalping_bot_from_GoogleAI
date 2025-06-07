@@ -9,6 +9,7 @@ import com.example.scalpingBot.service.risk.RiskManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,16 +30,19 @@ public class PositionManager {
     private final OrderExecutionService orderExecutionService;
     private final PositionSizer positionSizer;
     private final RiskManager riskManager;
+    private final BigDecimal defaultTrailingStopPercentage;
 
     @Autowired
     public PositionManager(PositionRepository positionRepository,
                            OrderExecutionService orderExecutionService,
                            PositionSizer positionSizer,
-                           RiskManager riskManager) {
+                           RiskManager riskManager,
+                           @Value("${risk.default.trailing-stop.percentage:}") BigDecimal defaultTrailingStopPercentage) {
         this.positionRepository = positionRepository;
         this.orderExecutionService = orderExecutionService;
         this.positionSizer = positionSizer;
         this.riskManager = riskManager;
+        this.defaultTrailingStopPercentage = defaultTrailingStopPercentage;
     }
 
     /**
@@ -78,10 +82,12 @@ public class PositionManager {
                 .entryPrice(entryPrice)
                 .stopLossPrice(stopLossPrice)
                 .takeProfitPrice(takeProfitPrice)
+                .trailingStopPercentage(this.defaultTrailingStopPercentage)
                 .build();
 
         positionRepository.save(newPosition);
-        log.info("Successfully opened {} position for {} of {} at price {}", side, quantity, symbol, entryPrice);
+        log.info("Successfully opened {} position for {} of {} at price {}. Trailing Stop: {}%",
+                side, quantity, symbol, entryPrice, defaultTrailingStopPercentage);
     }
 
     /**

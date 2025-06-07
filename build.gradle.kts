@@ -52,6 +52,7 @@ dependencies {
 	// JSON обработка (улучшенная)
 	implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
 	implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+	implementation("com.fasterxml.jackson.core:jackson-databind")
 
 	// Математические вычисления для технического анализа
 	implementation("org.apache.commons:commons-math3:3.6.1")
@@ -79,6 +80,9 @@ dependencies {
 
 	// Инструменты разработки
 	developmentOnly("org.springframework.boot:spring-boot-devtools")
+
+	// WebSocket Client
+	implementation("org.glassfish.tyrus.bundles:tyrus-standalone-client:2.1.5")
 
 	// Тестирование
 	testImplementation("org.springframework.boot:spring-boot-starter-test")

@@ -46,6 +46,14 @@ public class Position {
     @Column(name = "take_profit_price", precision = 19, scale = 8)
     private BigDecimal takeProfitPrice;
 
+    /**
+     * Процент трейлинг-стопа. Если null, трейлинг-стоп для этой позиции отключен.
+     * Например, значение 2.5 означает, что стоп-лосс будет следовать за ценой
+     * на расстоянии 2.5%.
+     */
+    @Column(name = "trailing_stop_percentage", precision = 10, scale = 4)
+    private BigDecimal trailingStopPercentage;
+
     @Column(name = "is_active", nullable = false)
     private boolean isActive;
 
